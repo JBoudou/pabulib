@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License along with
 // this program. If not, see <https://www.gnu.org/licenses/>.
 
-package pubalib
+package pabulib
 
 import (
 	"bufio"
@@ -29,8 +29,8 @@ var (
 )
 
 type Section struct {
-	Headers []string
-	Lines   [][]string
+	Fields []string
+	Lines  [][]string
 }
 
 type File struct {
@@ -80,8 +80,8 @@ func newSection(scan *bufio.Scanner) (section *Section, nextTitle string, err er
 		}
 		return
 	}
-	section = &Section{Headers: splitScanned(scan)}
-	nbFields := len(section.Headers)
+	section = &Section{Fields: splitScanned(scan)}
+	nbFields := len(section.Fields)
 	if nbFields == 1 {
 		err = WrongFormat
 		return
@@ -107,4 +107,48 @@ func newSection(scan *bufio.Scanner) (section *Section, nextTitle string, err er
 func (self *File) Get(sectionName string) (section *Section, ok bool) {
 	section, ok = self.sections[sectionName]
 	return
+}
+
+// FieldIndexes searches the indexes corresponding to the given field names.
+// The indexes are returned in the same order as the given field names.
+// Negative values indicate that field names have not been found.
+// The returned boolean is true only if all field names have been found.
+func (self *Section) FieldIndexes(fields []string) (indexes []int, ok bool) {
+	count := len(fields)
+	indexes = make([]int, count)
+	posMap := make(map[string]int, count)
+	for i, field := range fields {
+		indexes[i] = -1
+		posMap[field] = i
+	}
+
+	found := 0
+	for i, field := range self.Fields {
+		pos, tmpOk := posMap[field]
+		if tmpOk {
+			if indexes[pos] < 0 {
+				found += 1
+			}
+			indexes[pos] = i
+			if found == count {
+				break
+			}
+		}
+	}
+
+	ok = found == count
+	return
+}
+
+func (self *Section) Cell(line int, field string) (string, bool) {
+	if line >= len(self.Lines) {
+		return "", false
+	}
+
+	index, ok := self.FieldIndexes([]string{field})
+	if !ok {
+		return "", false
+	}
+
+	return self.Lines[line][index[0]], true
 }

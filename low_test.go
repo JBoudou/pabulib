@@ -14,10 +14,11 @@
 // You should have received a copy of the GNU General Public License along with
 // this program. If not, see <https://www.gnu.org/licenses/>.
 
-package pubalib
+package pabulib
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -43,11 +44,11 @@ func (self ftError) testFile(t *testing.T, _ *File, err error) {
 }
 
 type ftHasSection struct {
-	name string
+	name  string
 	tests []sectionTester
 }
 
-func (self *ftHasSection) testFile(t *testing.T, file *File, err error)  {
+func (self *ftHasSection) testFile(t *testing.T, file *File, err error) {
 	if err != nil {
 		t.Fatalf("Unexpected error %v.", err)
 		return
@@ -62,17 +63,17 @@ func (self *ftHasSection) testFile(t *testing.T, file *File, err error)  {
 	}
 }
 
-type stHasHeaders struct {
-	headers []string
+type stHasFields struct {
+	fields []string
 }
 
-func (self stHasHeaders) testSection(t *testing.T, section *Section) {
-	if len(section.Headers) != len(self.headers) {
-		t.Errorf("Different headers length. Got %d. Expect %d.", len(section.Headers), len(self.headers))
+func (self stHasFields) testSection(t *testing.T, section *Section) {
+	if len(section.Fields) != len(self.fields) {
+		t.Errorf("Different fields length. Got %d. Expect %d.", len(section.Fields), len(self.fields))
 	}
-	for i, got := range section.Headers {
-		if expect := self.headers[i]; got != expect {
-			t.Errorf("Wrong header %d. Got %s. Expect %s.", i, got, expect)
+	for i, got := range section.Fields {
+		if expect := self.fields[i]; got != expect {
+			t.Errorf("Wrong field %d. Got %s. Expect %s.", i, got, expect)
 		}
 	}
 }
@@ -99,34 +100,34 @@ func (self stHasValues) testSection(t *testing.T, section *Section) {
 }
 
 func TestReadFile(t *testing.T) {
-	tests := []struct{
-		name string
-		data string
+	tests := []struct {
+		name  string
+		data  string
 		tests []fileTester
 	}{
 		{
-			name: "No headers",
-			data: "SECTION\n",
-			tests: []fileTester{ ftError{ WrongFormat } },
+			name:  "No fields",
+			data:  "SECTION\n",
+			tests: []fileTester{ftError{WrongFormat}},
 		},
 		{
-			name: "One header",
-			data: "foo\nbar\n",
-			tests: []fileTester{ ftError{ WrongFormat } },
+			name:  "One field",
+			data:  "foo\nbar\n",
+			tests: []fileTester{ftError{WrongFormat}},
 		},
 		{
-			name: "Wrong number of fields",
-			data: "foo\nbar;baz\none\n",
-			tests: []fileTester{ ftError{ WrongFormat } },
+			name:  "Wrong number of fields",
+			data:  "foo\nbar;baz\none\n",
+			tests: []fileTester{ftError{WrongFormat}},
 		},
 		{
 			name: "One section",
 			data: "foo \n key  ; value \n bar; baz\nflu;blu\n",
-			tests: []fileTester{ &ftHasSection{
+			tests: []fileTester{&ftHasSection{
 				name: "foo",
 				tests: []sectionTester{
-					stHasHeaders{ []string{ "key", "value" } },
-					stHasValues{ [][]string{ { "bar", "baz" }, { "flu", "blu" } } },
+					stHasFields{[]string{"key", "value"}},
+					stHasValues{[][]string{{"bar", "baz"}, {"flu", "blu"}}},
 				},
 			}},
 		},
@@ -137,15 +138,15 @@ func TestReadFile(t *testing.T) {
 				&ftHasSection{
 					name: "First",
 					tests: []sectionTester{
-						stHasHeaders{ []string{ "key", "value" } },
-						stHasValues{ [][]string{ { "bar", "baz" } } },
+						stHasFields{[]string{"key", "value"}},
+						stHasValues{[][]string{{"bar", "baz"}}},
 					},
 				},
 				&ftHasSection{
 					name: "Second",
 					tests: []sectionTester{
-						stHasHeaders{ []string{ "ha", "hb" } },
-						stHasValues{ [][]string{ { "a", "b" } } },
+						stHasFields{[]string{"ha", "hb"}},
+						stHasValues{[][]string{{"a", "b"}}},
 					},
 				},
 			},
@@ -156,6 +157,104 @@ func TestReadFile(t *testing.T) {
 			file, err := ReadFile(strings.NewReader(tt.data))
 			for _, tst := range tt.tests {
 				tst.testFile(t, file, err)
+			}
+		})
+	}
+}
+
+func TestSection_FieldIndexes(t *testing.T) {
+	tests := []struct {
+		name    string
+		section Section
+		fields  []string
+		indexes []int
+		ok      bool
+	}{
+		{
+			name: "Found",
+			section: Section{
+				Fields: []string{"foo", "bar", "baz"},
+				Lines:  [][]string{{"a", "b", "c"}, {"d", "e", "f"}},
+			},
+			fields:  []string{"baz", "foo"},
+			indexes: []int{2, 0},
+			ok:      true,
+		},
+		{
+			name: "Missing",
+			section: Section{
+				Fields: []string{"foo", "bar", "baz"},
+				Lines:  [][]string{{"a", "b", "c"}, {"d", "e", "f"}},
+			},
+			fields:  []string{"bar", "flu"},
+			indexes: []int{1, -1},
+			ok:      false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotIndexes, gotOk := tt.section.FieldIndexes(tt.fields)
+			if gotOk != tt.ok {
+				t.Errorf("Wrong ok result. Got %t. Expect %t.", gotOk, tt.ok)
+			}
+			if !reflect.DeepEqual(gotIndexes, tt.indexes) {
+				t.Errorf("Wrong indexes. Got %v. Expect %v.", gotIndexes, tt.indexes)
+			}
+		})
+	}
+}
+
+func TestSection_Cell(t *testing.T) {
+	tests := []struct {
+		name    string
+		section Section
+		line    int
+		field   string
+		value   string
+		ok      bool
+	}{
+		{
+			name: "Found",
+			section: Section{
+				Fields: []string{"foo", "bar", "baz"},
+				Lines:  [][]string{{"a", "b", "c"}, {"d", "e", "f"}},
+			},
+			line:  1,
+			field: "foo",
+			value: "d",
+			ok:    true,
+		},
+		{
+			name: "Missing",
+			section: Section{
+				Fields: []string{"foo", "bar", "baz"},
+				Lines:  [][]string{{"a", "b", "c"}, {"d", "e", "f"}},
+			},
+			line:  0,
+			field: "flu",
+			value: "",
+			ok:    false,
+		},
+		{
+			name: "Out of bounds",
+			section: Section{
+				Fields: []string{"foo", "bar", "baz"},
+				Lines:  [][]string{{"a", "b", "c"}, {"d", "e", "f"}},
+			},
+			line:  2,
+			field: "bar",
+			value: "",
+			ok:    false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotValue, gotOk := tt.section.Cell(tt.line, tt.field)
+			if gotOk != tt.ok {
+				t.Errorf("Wrong ok result. Got %t. Expect %t.", gotOk, tt.ok)
+			}
+			if gotValue != tt.value {
+				t.Errorf("Wrong value. Got %s. Expect %s.", gotValue, tt.value)
 			}
 		})
 	}
