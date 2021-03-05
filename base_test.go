@@ -40,13 +40,22 @@ func makeFile(repr []namedSection) *File {
 	return &File{sections: m}
 }
 
-func makePBBase(repr []namedSection) (pbBase, error) {
+func makePBBase(repr []namedSection) (*pbBase, error) {
 	return newPbBase(makeFile(repr))
 }
 
 type projectRepr struct {
 	id   string
 	cost int
+}
+
+func (self *projectRepr) check(t *testing.T, index int, project Project) {
+	if got := project.Id(); got != self.id {
+		t.Errorf("Wrong Id for project %d. Got %s. Expect %s.", index, got, self.id)
+	}
+	if got := project.Cost(); got != self.cost {
+		t.Errorf("Wrong Cost for project %d. Got %d. Expect %d.", index, got, self.cost)
+	}
 }
 
 func TestPBBase(t *testing.T) {
@@ -134,12 +143,13 @@ func TestPBBase(t *testing.T) {
 			}
 
 			for i, expect := range tt.projects {
-				project := pb.Project(i)
-				if got := project.Id(); got != expect.id {
-					t.Errorf("Wrong Id for project %d. Got %s. Expect %s.", i, got, expect.id)
-				}
-				if got := project.Cost(); got != expect.cost {
-					t.Errorf("Wrong Cost for project %d. Got %d. Expect %d.", i, got, expect.cost)
+				expect.check(t, i, pb.ProjectByIndex(i))
+				
+				project, found := pb.Project(expect.id)
+				if !found {
+					t.Errorf("Project with id %s not found.", expect.id)
+				} else {
+					expect.check(t, i, project)
 				}
 			}
 

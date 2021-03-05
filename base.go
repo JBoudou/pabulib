@@ -21,7 +21,6 @@ import (
 	"strconv"
 )
 
-
 // Errors //
 
 type MissingRequiredSection struct {
@@ -55,7 +54,6 @@ type MissingRequiredMeta struct {
 func (self MissingRequiredMeta) Error() string {
 	return fmt.Sprintf("Missing required meta key %s", self.Meta)
 }
-
 
 // Generic types //
 
@@ -93,10 +91,15 @@ type PB interface {
 	Rule() int
 
 	Meta(key string) (string, bool)
-	Project(index int) Project
+
+	// Project returns the project with given identifier.
+	Project(id string) (Project, bool)
+
+	// ProjectByIndex returns the i'th project.
+	ProjectByIndex(index int) Project
+
 	Vote(index int) Vote
 }
-
 
 // Base implementation //
 
@@ -156,6 +159,7 @@ type pbBase struct {
 	projectsSection *Section
 	votesSection    *Section
 	budget          int // memoized
+	projectId       map[string]int
 }
 
 func firstMissingField(fields []string, indexes []int) string {
@@ -167,7 +171,9 @@ func firstMissingField(fields []string, indexes []int) string {
 	panic("Must never reach this line")
 }
 
-func newPbBase(file *File) (ret pbBase, err error) {
+func newPbBase(file *File) (ret *pbBase, err error) {
+	ret = &pbBase{}
+
 	// Sections
 	var ok bool
 	if ret.metaSection, ok = file.Get("META"); !ok {
@@ -197,17 +203,24 @@ func newPbBase(file *File) (ret pbBase, err error) {
 		projectFields = []string{"project_id", "cost"}
 		votesFields   = []string{"voter_id", "vote"}
 	)
-	if indexes, ok := ret.projectsSection.FieldIndexes(projectFields); !ok {
-		return ret, MissingRequiredField{firstMissingField(projectFields, indexes)}
+	var projectIndexes []int
+	if projectIndexes, ok = ret.projectsSection.FieldIndexes(projectFields); !ok {
+		return ret, MissingRequiredField{firstMissingField(projectFields, projectIndexes)}
 	}
 	if indexes, ok := ret.votesSection.FieldIndexes(votesFields); !ok {
 		return ret, MissingRequiredField{firstMissingField(votesFields, indexes)}
 	}
 
+	// Projects
+	ret.projectId = make(map[string]int, ret.NumProjects())
+	for i, project := range ret.projectsSection.Lines {
+		ret.projectId[project[projectIndexes[0]]] = i
+	}
+
 	return
 }
 
-func (self pbBase) hasAllMeta(meta []string) error {
+func (self *pbBase) hasAllMeta(meta []string) error {
 	count := len(meta)
 	metaMap := make(map[string]bool, count)
 	for _, m := range meta {
@@ -238,19 +251,19 @@ func (self pbBase) hasAllMeta(meta []string) error {
 	panic("Must never reach this line")
 }
 
-func (self pbBase) NumProjects() int {
+func (self *pbBase) NumProjects() int {
 	return self.mustMetaInt("num_projects")
 }
 
-func (self pbBase) NumVotes() int {
+func (self *pbBase) NumVotes() int {
 	return self.mustMetaInt("num_votes")
 }
 
-func (self pbBase) Budget() int {
+func (self *pbBase) Budget() int {
 	return self.budget
 }
 
-func (self pbBase) VoteType() int {
+func (self *pbBase) VoteType() int {
 	switch self.mustMeta("vote_type") {
 	case "approval":
 		return VoteTypeApproval
@@ -265,7 +278,7 @@ func (self pbBase) VoteType() int {
 	}
 }
 
-func (self pbBase) Rule() int {
+func (self *pbBase) Rule() int {
 	switch self.mustMeta("rule") {
 	case "greedy":
 		return RuleGreedy
@@ -274,7 +287,7 @@ func (self pbBase) Rule() int {
 	}
 }
 
-func (self pbBase) Meta(key string) (string, bool) {
+func (self *pbBase) Meta(key string) (string, bool) {
 	for _, line := range self.metaSection.Lines {
 		if line[0] == key {
 			return line[1], true
@@ -283,7 +296,7 @@ func (self pbBase) Meta(key string) (string, bool) {
 	return key, false
 }
 
-func (self pbBase) mustMeta(key string) (ret string) {
+func (self *pbBase) mustMeta(key string) (ret string) {
 	var ok bool
 	if ret, ok = self.Meta(key); !ok {
 		panic(MissingRequiredMeta{key})
@@ -291,7 +304,7 @@ func (self pbBase) mustMeta(key string) (ret string) {
 	return
 }
 
-func (self pbBase) mustMetaInt(key string) (ret int) {
+func (self *pbBase) mustMetaInt(key string) (ret int) {
 	var err error
 	if ret, err = strconv.Atoi(self.mustMeta(key)); err != nil {
 		panic(err)
@@ -299,10 +312,39 @@ func (self pbBase) mustMetaInt(key string) (ret int) {
 	return
 }
 
-func (self pbBase) Project(index int) Project {
+func (self *pbBase) defaultMeta(key string, _default string) (ret string) {
+	var ok bool
+	if ret, ok = self.Meta(key); !ok {
+		return _default
+	}
+	return
+}
+
+func (self *pbBase) defaultMetaInt(key string, _default int) (ret int) {
+	str, ok := self.Meta(key)
+	if ok {
+		var err error
+		ret, err = strconv.Atoi(str)
+		ok = err == nil
+	}
+	if !ok {
+		return _default
+	}
+	return
+}
+
+func (self *pbBase) ProjectByIndex(index int) Project {
 	return newProjectBase(self.projectsSection, index)
 }
 
-func (self pbBase) Vote(index int) Vote {
+func (self *pbBase) Project(id string) (Project, bool) {
+	index, ok := self.projectId[id]
+	if !ok {
+		return nil, false
+	}
+	return self.ProjectByIndex(index), true
+}
+
+func (self *pbBase) Vote(index int) Vote {
 	return newVoteBase(self.votesSection, index)
 }

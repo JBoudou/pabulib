@@ -65,11 +65,12 @@ func ReadFile(in io.Reader) (ret *File, err error) {
 }
 
 var (
-	spliter = regexp.MustCompile("\\s*;\\s*")
+	spliterSemicolon = regexp.MustCompile("\\s*;\\s*")
+	spliterComma     = regexp.MustCompile("\\s*,\\s*")
 )
 
 func splitScanned(scan *bufio.Scanner) []string {
-	return spliter.Split(strings.TrimSpace(scan.Text()), -1)
+	return spliterSemicolon.Split(strings.TrimSpace(scan.Text()), -1)
 }
 
 func newSection(scan *bufio.Scanner) (section *Section, nextTitle string, err error) {
